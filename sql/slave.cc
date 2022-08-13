@@ -88,6 +88,7 @@ Master_info *active_mi= 0;
 my_bool replicate_same_server_id;
 ulonglong relay_log_space_limit = 0;
 ulonglong opt_read_binlog_speed_limit = 0;
+ulonglong opt_apply_binlog_speed_limit= 0;
 
 const char *relay_log_index= 0;
 const char *relay_log_basename= 0;
@@ -4325,6 +4326,50 @@ static int exec_relay_log_event(THD* thd, Relay_log_info* rli,
     }
 
     update_state_of_relay_log(rli, ev);
+
+    ulonglong bufferamount= opt_apply_binlog_speed_limit * 1024;
+    ulonglong event_length= event_size;
+
+    /* Control the binlog apply speed of master
+       when apply_binlog_speed_limit is non-zero
+    */
+    ulonglong apply_speed_limit_in_bytes= opt_apply_binlog_speed_limit * 1024;
+    ulonglong lastchecktime= my_hrtime().val;
+    if (apply_speed_limit_in_bytes)
+    {
+      // Prevent the bufferamount become a large value
+      if (bufferamount > apply_speed_limit_in_bytes * 2)
+      {
+        lastchecktime= my_hrtime().val;
+        bufferamount= apply_speed_limit_in_bytes * 2;
+      }
+
+      do
+      {
+        ulonglong currenttime= my_hrtime().val;
+        bufferamount+= (currenttime - lastchecktime) *
+                       apply_speed_limit_in_bytes / (1000 * 1000);
+        lastchecktime= currenttime;
+        if (bufferamount < event_length)
+        {
+          ulonglong duration= 1000ULL * 1000 * (event_length - bufferamount) /
+                              apply_speed_limit_in_bytes;
+          time_t seconds_of_duration= (time_t) (duration / (1000 * 1000));
+          uint micro_seconds_of_duration= duration % (1000 * 1000);
+
+          // at least sleep 1000 micro second
+          my_sleep(MY_MAX(micro_seconds_of_duration, 1000));
+
+          /*
+            If it sleep more than one second,
+            it should use slave_sleep() to avoid the STOP SLAVE hang.
+          */
+          if (seconds_of_duration)
+            slave_sleep(thd, seconds_of_duration, io_slave_killed, rli->mi);
+        }
+      } while (bufferamount < event_length);
+      bufferamount-= event_length;
+    }
 
     if (rli->mi->using_parallel())
     {

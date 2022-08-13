@@ -1,0 +1,61 @@
+#####################################################################
+# Author: Michael Chatziioannou                                     #
+# Date: 2022-08-12                                                  #
+# Purpose: To test that thorttle on event replication is applied.   #
+#####################################################################
+
+if (`SELECT $PS_PROTOCOL != 0`)
+{
+  --skip Need regular protocol but ps-protocol was specified
+}
+
+--source include/master-slave.inc
+
+# first, we need a table to record something from an event
+
+eval CREATE TABLE `t1` (
+  `id` INT(10) UNSIGNED NOT NULL,
+  `c1` CHAR(255) NOT NULL,
+  `c2` CHAR(255) NOT NULL,
+  `c3` CHAR(255) NOT NULL,
+  `c4` CHAR(255) NOT NULL,
+  `c5` CHAR(255) NOT NULL,
+  `ts` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) DEFAULT CHARSET=utf8;
+
+# set apply speed limit
+--eval SET GLOBAL read_binlog_speed_limit=1
+--echo read_binlog_speed_limit set to 1
+
+INSERT INTO t1 (id, c1, c2, c3, c4, c5) VALUES (1, 'test string 1', 'test string 1', 'test string 1', 'test string 1', 'test string 1');
+INSERT INTO t1 (id, c1, c2, c3, c4, c5) VALUES (2, 'test string 2', 'test string 2', 'test string 2', 'test string 2', 'test string 2');
+
+# check that table t1 contains something
+--echo "Checking event data on the master"
+let $events_done=`SELECT count(*)  FROM t1 id`;
+--disable_query_log
+#should return 2 as output
+--eval SELECT count(*)  FROM t1 id;
+--enable_query_log
+
+connection slave; 
+
+--echo "Checking event data on the slave"
+--disable_query_log
+#should return 1 as output
+--eval SELECT count(*)  FROM t1 id;
+--enable_query_log
+
+--real_sleep 1.00
+
+--echo "Checking event data on the slave"
+--disable_query_log
+#should return 2 as output
+--eval SELECT count(*)  FROM t1 id;
+--enable_query_log
+
+connection master;
+DROP TABLE t1;
+connection slave;
+--source include/rpl_end.inc

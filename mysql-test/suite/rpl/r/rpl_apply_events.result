@@ -1,0 +1,27 @@
+include/master-slave.inc
+[connection master]
+CREATE TABLE `t1` (
+`id` INT(10) UNSIGNED NOT NULL,
+`c1` CHAR(255) NOT NULL,
+`c2` CHAR(255) NOT NULL,
+`c3` CHAR(255) NOT NULL,
+`c4` CHAR(255) NOT NULL,
+`c5` CHAR(255) NOT NULL,
+`ts` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+PRIMARY KEY (`id`)
+) DEFAULT CHARSET=utf8;
+SET GLOBAL read_binlog_speed_limit=1;
+read_binlog_speed_limit set to 1
+INSERT INTO t1 (id, c1, c2, c3, c4, c5) VALUES (1, 'test string 1', 'test string 1', 'test string 1', 'test string 1', 'test string 1');
+INSERT INTO t1 (id, c1, c2, c3, c4, c5) VALUES (2, 'test string 2', 'test string 2', 'test string 2', 'test string 2', 'test string 2');
+"Checking event data on the master"
+2
+connection slave;
+"Checking event data on the slave"
+1
+"Checking event data on the slave"
+2
+connection master;
+DROP TABLE t1;
+connection slave;
+include/rpl_end.inc
